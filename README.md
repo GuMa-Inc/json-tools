@@ -1,2 +1,1 @@
-# json-tools
-Group project for Inżynieria Oprogramowania
+An extraordinarily perfect project
