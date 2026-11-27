@@ -1,4 +1,4 @@
-name: Java CI - Build & Test
+name: Java CI/CD - Build, Test & Deploy
 
 on:
   push:
@@ -23,3 +23,45 @@ jobs:
 
       - name: Budowanie projektu i uruchomienie testów
         run: mvn -B verify
+
+      - name: Zapisanie zbudowanego JAR-a
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/io-project-architecture-*.jar
+          if-no-files-found: error
+
+  deploy:
+    needs: build-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-hermes
+      cancel-in-progress: false
+
+    steps:
+      - name: Pobranie JAR-a
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+
+      - name: Konfiguracja SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Wdrożenie na serwer
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+        run: |
+          scp io-project-architecture-*.jar "$TARGET:/opt/json-tools/app.jar.new"
+          ssh "$TARGET" 'mv /opt/json-tools/app.jar.new /opt/json-tools/app.jar && sudo systemctl restart json-tools'
+
+      - name: Sprawdzenie, czy aplikacja wstała
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh "$TARGET" 'for i in $(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:8081/test && exit 0; sleep 2; done; echo "Aplikacja nie odpowiada"; exit 1'
